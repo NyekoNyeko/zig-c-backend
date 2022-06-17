@@ -1,0 +1,7 @@
+zig
+lib/
+zig-cache/
+zig-out/
+*.sublime-project
+*.sublime-workspace
+*.DS_Store
