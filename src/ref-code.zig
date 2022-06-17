@@ -57,7 +57,7 @@ fn strCompare(str1: []const u8, str2: []const u8) bool {
     return true;
 }
 
-fn strCopy(source_strs: [][]const u8, allocator: std.mem.Allocator) ![]u8 {
+fn strCopy(source_strs: []const []const u8, allocator: std.mem.Allocator) ![]u8 {
     var dest_str_len: usize = 0;
 
     var i: usize = 0;
@@ -137,8 +137,8 @@ pub fn main() !void {
     {
         var index: usize = 0;
         while (index < dirs.desktop_dir_path_list.items.len) : (index += 1) {
-            (try ProcessDirectories(dirs.desktop_dir_path_list.items[index], &file_paths_list, dirs_fba)) orelse {
-                stdOutD("Warning! There are no files in the directory!\n\"{s}\"\n\n", .{dirs.desktop_dir_path_list.items[index]});
+            (try ProcessDirectory(dirs.desktop_dir_path_list.items[index], &file_paths_list, dirs_fba)) orelse {
+                stdOutD("Warning! There are no '.desktop' files in the directory!\n\"{s}\"\n\n", .{dirs.desktop_dir_path_list.items[index]});
             };
         }
     }
@@ -216,7 +216,7 @@ fn ProcessArgument(amount_of_args: usize, index: usize, dirs: *Directories, args
 }
 
 //Search through each directory path and collects all file paths( not dir or other paths, non recursively TODO:: add recursive option )
-fn ProcessDirectories(dirs: []const u8, file_paths_list: *std.ArrayListAligned([]const u8, null), allocator: std.mem.Allocator) !?void {
+fn ProcessDirectory(dirs: []const u8, file_paths_list: *std.ArrayListAligned([]const u8, null), allocator: std.mem.Allocator) !?void {
     var directory: std.fs.Dir = undefined;
     if (dirs[0] != '/') {
         directory = std.fs.cwd().openDir(dirs, .{ .iterate = true }) catch |err| {
@@ -258,8 +258,20 @@ fn ProcessDirectories(dirs: []const u8, file_paths_list: *std.ArrayListAligned([
     var index: usize = 0;
     while (try dir_iterator.next()) |new_entry| : (index += 1) {
         if (@enumToInt(new_entry.kind) != 5) continue;
-        var things_to_be_combined = [_][]const u8{ buffer_slice, "/", new_entry.name };
+        if (!fileIsDotDesktop(new_entry.name)) continue;
+        const things_to_be_combined = [_][]const u8{ buffer_slice, "/", new_entry.name };
         try file_paths_list.append(try strCopy(things_to_be_combined[0..], allocator));
         first_pass = false;
     } else if (first_pass) return null;
+}
+
+fn fileIsDotDesktop(filename: []const u8) bool {
+    var index: usize = 0;
+    var last_dot_loc: ?usize = null;
+    while (index < filename.len) {
+        if (filename[index] == '.') last_dot_loc = index;
+        index += 1;
+    }
+    if (last_dot_loc == null) return false;
+    return strCompare(filename[last_dot_loc.?..], ".desktop");
 }
