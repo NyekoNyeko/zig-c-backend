@@ -148,6 +148,8 @@ pub fn main() !void {
     //1. The name and description of the application
     //2. The command to run the application
     //3. That catagories (Plural!) that the application falls under
+    var progam_info_list = std.ArrayList(MenuEntries).init(dirs_fba);
+    parseFile(file_paths_list,progam_info_list,dirs_fba);
 
     //debug stuff
     var index: usize = 0;
@@ -216,17 +218,18 @@ fn ProcessArgument(amount_of_args: usize, index: usize, dirs: *Directories, args
 }
 
 //Search through each directory path and collects all file paths( not dir or other paths, non recursively TODO:: add recursive option )
-fn ProcessDirectory(dirs: []const u8, file_paths_list: *std.ArrayListAligned([]const u8, null), allocator: std.mem.Allocator) !?void {
+fn ProcessDirectory(current_dir: []const u8, file_paths_list: *std.ArrayListAligned([]const u8, null), allocator: std.mem.Allocator) !?void {
     var directory: std.fs.Dir = undefined;
-    if (dirs[0] != '/') {
-        directory = std.fs.cwd().openDir(dirs, .{ .iterate = true }) catch |err| {
-            const current_dir = try std.fs.cwd().realpathAlloc(EmergencyAllacator.allocator(), "./");
+    if (current_dir[0] != '/') {
+        directory = std.fs.cwd().openDir(current_dir, .{ .iterate = true }) catch |err| {
+            // TODO:: Create a function for this error because this is ugly and annoying.
+            const abs_dir_location = try std.fs.cwd().realpathAlloc(EmergencyAllacator.allocator(), "./");
             switch (err) {
                 std.fs.Dir.OpenError.FileNotFound => {
-                    stdOutD("Error! Unable to find the directory!\n\"{s}/{s}\"\n\n", .{ current_dir, dirs });
+                    stdOutD("Error! Unable to find the directory!\n\"{s}/{s}\"\n\n", .{ abs_dir_location, current_dir });
                 },
                 std.fs.Dir.OpenError.NotDir => {
-                    stdOutD("Error! The file path is not a directory!\n\"{s}/{s}\"\n\n", .{ current_dir, dirs });
+                    stdOutD("Error! The file path is not a directory!\n\"{s}/{s}\"\n\n", .{ abs_dir_location, current_dir });
                 },
                 else => {
                     stdOutD("Error! Something weird happened, see returned error for details!\n\n", .{});
@@ -235,13 +238,14 @@ fn ProcessDirectory(dirs: []const u8, file_paths_list: *std.ArrayListAligned([]c
             return err;
         };
     } else {
-        directory = std.fs.openDirAbsolute(dirs, .{ .iterate = true }) catch |err| {
+        directory = std.fs.openDirAbsolute(current_dir, .{ .iterate = true }) catch |err| {
+            // TODO:: Create a function for this error. handleOpeningDirError(err,?abs_dir_location,current_dir); return err;
             switch (err) {
                 std.fs.Dir.OpenError.FileNotFound => {
-                    stdOutD("Error! Unable to find the directory!\n\"{s}\"\n\n", .{dirs});
+                    stdOutD("Error! Unable to find the directory!\n\"{s}\"\n\n", .{current_dir});
                 },
                 std.fs.Dir.OpenError.NotDir => {
-                    stdOutD("Error! The file path is not a directory!\n\"{s}\"\n\n", .{dirs});
+                    stdOutD("Error! The file path is not a directory!\n\"{s}\"\n\n", .{current_dir});
                 },
                 else => {
                     stdOutD("Error! Something weird happened, see returned error for details!\n\n", .{});
@@ -265,6 +269,7 @@ fn ProcessDirectory(dirs: []const u8, file_paths_list: *std.ArrayListAligned([]c
     } else if (first_pass) return null;
 }
 
+//Check if the extension for the file is correct
 fn fileIsDotDesktop(filename: []const u8) bool {
     var index: usize = 0;
     var last_dot_loc: ?usize = null;
@@ -274,4 +279,31 @@ fn fileIsDotDesktop(filename: []const u8) bool {
     }
     if (last_dot_loc == null) return false;
     return strCompare(filename[last_dot_loc.?..], ".desktop");
+}
+const MenuEntries = struct {
+    name: []u8,
+    comment: []u8,
+    exec_path: []u8,
+    categories: [][]u8,
+    use_terminal: bool,
+};
+
+// Looking for :: "Name" "Type=Application" "Categories" "[Desktop Entry]" "Exec"(Ignore anything after %) "Terminal" "Comment" "Hidden"
+// If outside of "[Desktop Entry]" ->
+// BEFORE: Ignore until find it. If no "[Desktop Entry]" spit warning and .desktop file is ignored.
+// AFTER: If you find a new [Thing] then stop searching the file basically immediately.
+// If no name spit warning and .desktop file is ignored
+// If no "Type=Application" spit warning and .desktop file is ignored
+// If no catagories place in catagory "Other"
+// If no exec spit warning and .desktop file is ignored ->
+// NOTE: If there is anything after the exec like %xyz, remove the white space from your copying of the exec path and just skip to the nextline
+// If no terminal false or true spit warning and assume false ( also if they put something that's other then false or true )
+// If no comment add the default comment "Generic Program!" and spit warning
+// If no hidden assume NOT hidden
+fn parseFile(
+    file_paths_list:std.ArrayListAligned([]const u8, null),
+    progam_info_list:std.ArrayListAligned(MenuEntries, null),
+    allocator: std.mem.Allocator
+    ) !void {
+
 }
