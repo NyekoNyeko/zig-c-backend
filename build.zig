@@ -3,8 +3,13 @@ const Builder = std.build.Builder;
 const LibExeObjStep = std.build.LibExeObjStep;
 
 pub fn build(b: *Builder) void {
-    // const source = "src/ref-code.c";
-    const source = "src/ref-code.zig";
+    // const source = "src/simple-ref-code.c";
+    const source = "src/simple-ref-code-debug.c";
+    // const source = "src/simple-ref-code.zig";
+
+    // const source = "src/complex-ref-code.c";
+    // const source = "src/complex-ref-code-debug.c";
+    // const source = "src/complex-ref-code.zig";
 
     // Allow for args like -Drelease-fast and -Dtarget=native-linux
     const target = b.standardTargetOptions(.{});
