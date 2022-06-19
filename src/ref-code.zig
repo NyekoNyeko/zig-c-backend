@@ -39,10 +39,11 @@ const Directories = struct {
 
 const MenuEntries = struct {
     name: ?[]u8,
+    type: bool,
     comment: ?[]u8,
     exec_path: ?[]u8,
     categories: ?[][]u8,
-    use_terminal: ?bool,
+    use_terminal: bool,
 };
 
 pub fn main() !void {
@@ -112,11 +113,7 @@ pub fn main() !void {
     }
     if (file_paths_list.items.len < 1) return error.NoDesktopFilesFound;
 
-    //Process the files, get list of applications and catagories
-    //Applications hold x things
-    //1. The name and description of the application
-    //2. The command to run the application
-    //3. That catagories (Plural!) that the application falls under
+    //Process the files, get list of applications
     var progam_info_list = std.ArrayList(MenuEntries).init(main_fba);
     {
         const buffer_size = 1024 * 128;
@@ -132,7 +129,7 @@ pub fn main() !void {
                 buffer_size,
                 main_fba,
             );
-            _ = file_fba_struct.reset;
+            file_fba_struct.reset();
         }
     }
 
@@ -251,10 +248,10 @@ fn handleOpeningDirError(err: anyerror, relative_dir_location: ?[]const u8, curr
     if (relative_dir_location == null) {
         switch (err) {
             std.fs.Dir.OpenError.FileNotFound => {
-                stdOutD("Error! Unable to find the directory!\n\"{s}\"\n\n", .{current_dir});
+                stdOutD("Error! Unable to find the directory!\n'{s}'\n\n", .{current_dir});
             },
             std.fs.Dir.OpenError.NotDir => {
-                stdOutD("Error! The file path is not a directory!\n\"{s}\"\n\n", .{current_dir});
+                stdOutD("Error! The file path is not a directory!\n'{s}'\n\n", .{current_dir});
             },
             else => {
                 stdOutD("Error! Something weird happened, see returned error for details!\n\n", .{});
@@ -263,10 +260,10 @@ fn handleOpeningDirError(err: anyerror, relative_dir_location: ?[]const u8, curr
     } else {
         switch (err) {
             std.fs.Dir.OpenError.FileNotFound => {
-                stdOutD("Error! Unable to find the directory!\n\"{s}/{s}\"\n\n", .{ relative_dir_location.?, current_dir });
+                stdOutD("Error! Unable to find the directory!\n'{s}/{s}'\n\n", .{ relative_dir_location.?, current_dir });
             },
             std.fs.Dir.OpenError.NotDir => {
-                stdOutD("Error! The file path is not a directory!\n\"{s}/{s}\"\n\n", .{ relative_dir_location.?, current_dir });
+                stdOutD("Error! The file path is not a directory!\n'{s}/{s}'\n\n", .{ relative_dir_location.?, current_dir });
             },
             else => {
                 stdOutD("Error! Something weird happened, see returned error for details!\n\n", .{});
@@ -314,22 +311,25 @@ fn parseFile(file_path: []const u8, progam_info_list: *std.ArrayListAligned(Menu
     var dont_incr = false;
     var found_desktop_entry = false;
     var current_pos = LinePosition{
-        .line = 0,
-        .column = 0,
+        .line = 1,
+        .column = 1,
     };
     var program_info = MenuEntries{
         .name = null,
+        .type = false,
         .comment = null,
         .exec_path = null,
         .categories = null,
-        .use_terminal = null,
+        .use_terminal = false,
     };
     //Start the loop of finding key-value pairs
     main: while (file_index < file_buffer.len) {
         //Search for either a section marker or key
         index = 0;
         var section = false;
+        var lang_section = false;
         var key = false;
+        var parsed_char = false;
         while (file_index < file_buffer.len) : ({
             index += 1;
             if (dont_incr) {
@@ -337,42 +337,68 @@ fn parseFile(file_path: []const u8, progam_info_list: *std.ArrayListAligned(Menu
                 dont_incr = false;
             }
             file_index += 1;
-            current_pos.column += 1;
+            if (file_index < file_buffer.len and file_buffer[file_index] == '\n') {
+                current_pos.line += 1;
+                current_pos.column = 1;
+            } else current_pos.column += 1;
         }) {
             //Skip Comment
             if (file_buffer[file_index] == '#') {
-                while (file_buffer[file_index] == '\n') {
+                while (file_buffer[file_index] != '\n') {
                     if (file_index == file_buffer.len) break :main;
                     file_index += 1;
                 }
+                current_pos.line += 1;
+                current_pos.column = 1;
                 dont_incr = true;
                 continue;
             }
             //Skip NewLine
             if (file_buffer[file_index] == '\n') {
                 current_pos.line += 1;
-                current_pos.column = 0;
+                current_pos.column = 1;
                 index = 0;
                 dont_incr = true;
                 continue;
-            } else if (file_buffer[file_index] == ' ') { //Skip Space
+            } else if (file_buffer[file_index] == ' ' or file_buffer[file_index] == '\t') { //Skip Space
                 dont_incr = true;
                 continue;
             } else if (file_buffer[file_index] == '=') {
-                text_slice = buffer[0 .. index - 1];
+                text_slice = buffer[0..index];
                 file_index += 1;
+                if (file_index < file_buffer.len and file_buffer[file_index] == '\n') {
+                    current_pos.line += 1;
+                    current_pos.column = 1;
+                } else current_pos.column += 1;
                 key = true;
+                break;
+            } else if (parsed_char and file_buffer[file_index] == '[') {
+                lang_section = true;
+                file_index += 1;
+                if (file_index < file_buffer.len and file_buffer[file_index] == '\n') {
+                    current_pos.line += 1;
+                    current_pos.column = 1;
+                } else current_pos.column += 1;
                 break;
             } else if (file_buffer[file_index] == '[') {
                 section = true;
                 file_index += 1;
+                if (file_index < file_buffer.len and file_buffer[file_index] == '\n') {
+                    current_pos.line += 1;
+                    current_pos.column = 1;
+                } else current_pos.column += 1;
                 break;
             }
             buffer[index] = file_buffer[file_index];
+            parsed_char = true;
         }
 
         index = 0;
-        var succeeded = false;
+        var succeed = false;
+        var section_start_pos = LinePosition{
+            .line = current_pos.line,
+            .column = current_pos.column,
+        };
         //Process the section inbetween brackets and if it is the main section continue like normal, if not skip until next section.
         if (section) {
             while (file_index < file_buffer.len) : ({
@@ -382,27 +408,39 @@ fn parseFile(file_path: []const u8, progam_info_list: *std.ArrayListAligned(Menu
                     dont_incr = false;
                 }
                 file_index += 1;
-                current_pos.column += 1;
+                if (file_index < file_buffer.len and file_buffer[file_index] == '\n') {
+                    current_pos.line += 1;
+                    current_pos.column = 1;
+                } else current_pos.column += 1;
             }) {
                 //Skip NewLine
                 if (file_buffer[file_index] == '\n') {
                     current_pos.line += 1;
-                    current_pos.column = 0;
+                    current_pos.column = 1;
                     index = 0;
                     dont_incr = true;
                     continue;
-                } else if (file_buffer[file_index] == ' ') { //Skip Space
+                } else if (file_buffer[file_index] == ' ' or file_buffer[file_index] == '\t') { //Skip Space
                     dont_incr = true;
                     continue;
                 } else if (file_buffer[file_index] == ']') {
-                    text_slice = buffer[0 .. index - 1];
+                    text_slice = buffer[0..index];
                     file_index += 1;
-                    succeeded = true;
+                    if (file_index < file_buffer.len and file_buffer[file_index] == '\n') {
+                        current_pos.line += 1;
+                        current_pos.column = 1;
+                    } else current_pos.column += 1;
+                    succeed = true;
                     break;
                 }
                 buffer[index] = file_buffer[file_index];
             }
+            if (!succeed) {
+                stdOutD("Warning!! There was no end to a section marker in the file '{s}'! I won't parse it!\n" ++
+                    "Line: {d}\nColumn: {d}\n", .{ file_path, section_start_pos.line, section_start_pos.column });
+            }
             //Check if Desktop Entry, if not skip entire section until next open Bracket
+            stdOutD("{s}\n", .{text_slice});
             if (strCompare(text_slice, "DesktopEntry")) {
                 found_desktop_entry = true;
                 continue :main;
@@ -410,56 +448,257 @@ fn parseFile(file_path: []const u8, progam_info_list: *std.ArrayListAligned(Menu
                 //Ignore until next bracket
                 while (true) : ({
                     file_index += 1;
-                    current_pos.column += 1;
+                    if (file_index < file_buffer.len and file_buffer[file_index] == '\n') {
+                        current_pos.line += 1;
+                        current_pos.column = 1;
+                    } else current_pos.column += 1;
                 }) {
-                    //Skip NewLine
+                    //Don't parse the file if unable to find desktop entry
+                    if (file_index == file_buffer.len and found_desktop_entry == false) {
+                        stdOutD("Warning!! There was no [Desktop Entry] in the file '{s}'! I won't parse it!\n", .{file_path});
+                        return;
+                    } else if (file_index == file_buffer.len) {
+                        continue :main;
+                    }
+                    //Keep track of current_pos
                     if (file_buffer[file_index] == '\n') {
                         current_pos.line += 1;
-                        current_pos.column = 0;
-                        index = 0;
-                        dont_incr = true;
+                        current_pos.column = 1;
                         continue;
                     } else if (file_buffer[file_index] == '[') {
                         continue :main;
-                    } else if (file_index == file_buffer.len) {
-                        stdOutD("Warning!! There was no [Desktop Entry] in the file '{s}'! I won't parse it!\n", .{file_path});
-                        return;
                     }
                 }
             }
             //Check which key it is and place the value inside of the struct
-        } else if (key) {
+        } else if (key and found_desktop_entry) {
+            var found_value = false;
             if (strCompare(text_slice, "Name")) {
-                stdOutD("!!!!! Name did a thing!!\n", .{});
+                //Read text and record name
+                while (file_index < file_buffer.len) : ({
+                    index += 1;
+                    if (dont_incr) {
+                        index -= 1;
+                        dont_incr = false;
+                    }
+                    file_index += 1;
+                    if (file_index < file_buffer.len and file_buffer[file_index] == '\n') {
+                        current_pos.line += 1;
+                        current_pos.column = 1;
+                    } else current_pos.column += 1;
+                }) {
+                    //Skip NewLine
+                    if (file_buffer[file_index] == '\n') {
+                        current_pos.line += 1;
+                        current_pos.column = 1;
+                        text_slice = buffer[0..index];
+                        file_index += 1;
+                        break;
+                    }
+                    buffer[index] = file_buffer[file_index];
+                    found_value = true;
+                }
+                if (found_value) {
+                    stdOutD("!!!!! Name did a thing!!\n", .{});
+                    stdOutD("{s}\n", .{text_slice});
+                    program_info.name = try strCopy(&.{text_slice}, extra_allocator);
+                    continue :main;
+                }
+                stdOutD("Warning!! The file '{s}' did not have a value for key '{s}' and will not be parsed!\n" ++
+                    "Line: {d}\nColumn: {d}\n", .{ file_path, text_slice, section_start_pos.line, section_start_pos.column });
+                return;
             } else if (strCompare(text_slice, "Type")) {
-                stdOutD("Warning!! The file {s} is not an application and will not be parsed!\n", .{file_path});
+                //Read text and check if type is application
+                while (file_index < file_buffer.len) : ({
+                    index += 1;
+                    if (dont_incr) {
+                        index -= 1;
+                        dont_incr = false;
+                    }
+                    file_index += 1;
+                    if (file_index < file_buffer.len and file_buffer[file_index] == '\n') {
+                        current_pos.line += 1;
+                        current_pos.column = 1;
+                    } else current_pos.column += 1;
+                }) {
+                    //Skip NewLine
+                    if (file_buffer[file_index] == '\n') {
+                        current_pos.line += 1;
+                        current_pos.column = 1;
+                        text_slice = buffer[0..index];
+                        file_index += 1;
+                        break;
+                    } else if (file_buffer[file_index] == ' ' or file_buffer[file_index] == '\t') { //Skip Space
+                        dont_incr = true;
+                        continue;
+                    }
+                    buffer[index] = file_buffer[file_index];
+                    found_value = true;
+                }
+                if (found_value) {
+                    if (strCompare(text_slice, "Application")) {
+                        stdOutD("!!!!! Type did a thing!!\n", .{});
+                        program_info.type = true;
+                        continue :main;
+                    } else {
+                        stdOutD("Warning!! The file '{s}' did not declare it was of type 'Application' and won't be parsed!\n" ++
+                            "Line: {d}\nColumn: {d}\n", .{ file_path, section_start_pos.line, 5 });
+                        return;
+                    }
+                    stdOutD("", .{file_path});
+                }
+                stdOutD("Warning!! The file '{s}' did not have a value for key '{s}' and will not be parsed!\n" ++
+                    "Line: {d}\nColumn: {d}\n", .{ file_path, text_slice, section_start_pos.line, section_start_pos.column });
                 return;
             } else if (strCompare(text_slice, "Categories")) {
                 stdOutD("!!!!! Categories did a thing!!\n", .{});
             } else if (strCompare(text_slice, "Exec")) {
-                stdOutD("!!!!! Exec did a thing!!\n", .{});
+                //Read text and record exec path
+                while (file_index < file_buffer.len) : ({
+                    index += 1;
+                    if (dont_incr) {
+                        index -= 1;
+                        dont_incr = false;
+                    }
+                    file_index += 1;
+                    if (file_index < file_buffer.len and file_buffer[file_index] == '\n') {
+                        current_pos.line += 1;
+                        current_pos.column = 1;
+                    } else current_pos.column += 1;
+                }) {
+                    //Skip NewLine
+                    if (file_buffer[file_index] == '\n') {
+                        current_pos.line += 1;
+                        current_pos.column = 1;
+                        text_slice = buffer[0..index];
+                        file_index += 1;
+                        break;
+                    } else if (file_buffer[file_index] == '%') {
+                        text_slice = buffer[0..index];
+                        while (file_index < file_buffer.len) {
+                            if (file_buffer[file_index] == '\n') {
+                                current_pos.line += 1;
+                                current_pos.column = 1;
+                                file_index += 1;
+                                break;
+                            }
+                            file_index += 1;
+                        }
+                        break;
+                    }
+                    buffer[index] = file_buffer[file_index];
+                    found_value = true;
+                }
+                if (found_value) {
+                    stdOutD("!!!!! Exec did a thing!!\n", .{});
+                    program_info.exec_path = try strCopy(&.{text_slice}, extra_allocator);
+                    continue :main;
+                }
+                stdOutD("Warning!! The file '{s}' did not have a value for key '{s}' and will not be parsed!\n" ++
+                    "Line: {d}\nColumn: {d}\n", .{ file_path, text_slice, section_start_pos.line, section_start_pos.column });
+                return;
             } else if (strCompare(text_slice, "Terminal")) {
-                stdOutD("!!!!! Terminal did a thing!!\n", .{});
+                //Read text and check if app starts in terminal
+                while (file_index < file_buffer.len) : ({
+                    index += 1;
+                    if (dont_incr) {
+                        index -= 1;
+                        dont_incr = false;
+                    }
+                    file_index += 1;
+                    if (file_index < file_buffer.len and file_buffer[file_index] == '\n') {
+                        current_pos.line += 1;
+                        current_pos.column = 1;
+                    } else current_pos.column += 1;
+                }) {
+                    //Skip NewLine
+                    if (file_buffer[file_index] == '\n') {
+                        current_pos.line += 1;
+                        current_pos.column = 1;
+                        text_slice = buffer[0..index];
+                        file_index += 1;
+                        break;
+                    } else if (file_buffer[file_index] == ' ' or file_buffer[file_index] == '\t') { //Skip Space
+                        dont_incr = true;
+                        continue;
+                    }
+                    buffer[index] = file_buffer[file_index];
+                    found_value = true;
+                }
+                if (found_value) {
+                    if (strCompare(text_slice, "true")) {
+                        stdOutD("!!!!! Terminal did a thing!!\n", .{});
+                        program_info.use_terminal = true;
+                        continue;
+                    } else if (strCompare(text_slice, "false")) {
+                        stdOutD("!!!!! Terminal did a thing!!\n", .{});
+                        continue;
+                    } else {
+                        stdOutD("Warning!! The file '{s}' had an improper value for 'Terminal 'key and will be assumed false!\n" ++
+                            "Line: {d}\nColumn: {d}\n", .{ file_path, section_start_pos.line, 9 });
+                        continue;
+                    }
+                }
+                stdOutD("Warning!! The file '{s}' did not have a value for key '{s}' and will not be parsed!\n" ++
+                    "Line: {d}\nColumn: {d}\n", .{ file_path, text_slice, section_start_pos.line, section_start_pos.column });
+                return;
             } else if (strCompare(text_slice, "Comment")) {
-                stdOutD("!!!!! Comment did a thing!!\n", .{});
+                //Read text and record name
+                while (file_index < file_buffer.len) : ({
+                    index += 1;
+                    if (dont_incr) {
+                        index -= 1;
+                        dont_incr = false;
+                    }
+                    file_index += 1;
+                    if (file_index < file_buffer.len and file_buffer[file_index] == '\n') {
+                        current_pos.line += 1;
+                        current_pos.column = 1;
+                    } else current_pos.column += 1;
+                }) {
+                    //Skip NewLine
+                    if (file_buffer[file_index] == '\n') {
+                        current_pos.line += 1;
+                        current_pos.column = 1;
+                        text_slice = buffer[0..index];
+                        file_index += 1;
+                        break;
+                    }
+                    buffer[index] = file_buffer[file_index];
+                    found_value = true;
+                }
+                if (found_value) {
+                    stdOutD("!!!!! Comment did a thing!!\n", .{});
+                    program_info.comment = try strCopy(&.{text_slice}, extra_allocator);
+                    continue :main;
+                }
+                stdOutD("Warning!! The file '{s}' did not have a value for key '{s}' and will not be parsed!\n" ++
+                    "Line: {d}\nColumn: {d}\n", .{ file_path, text_slice, section_start_pos.line, section_start_pos.column });
+                return;
             } else if (strCompare(text_slice, "Hidden")) {
-                stdOutD("Warning!! The file {s} is hidden and will not be parsed!\n", .{file_path});
+                stdOutD("Warning!! The file '{s}' is hidden and will not be parsed!\n", .{file_path});
                 return;
             } else {
                 while (file_index < file_buffer.len) {
                     if (file_buffer[file_index] == '\n') {
-                        file_index += 1;
                         current_pos.line += 1;
-                        current_pos.column = 0;
+                        current_pos.column = 1;
+                        file_index += 1;
                         continue :main;
                     }
                     file_index += 1;
                 }
-                stdOutD("Warning!! The file {s} is improperly formatted!\n", .{file_path});
-                return;
             }
-        } else {
-            //Emit warning about improper .desktop file using current_pos struct
+        } else if (lang_section) {
+            while (file_index < file_buffer.len) {
+                if (file_buffer[file_index] == '\n') {
+                    current_pos.line += 1;
+                    current_pos.column = 1;
+                    file_index += 1;
+                    continue :main;
+                }
+                file_index += 1;
+            }
         }
     }
     //if it reaches the basic requirements to be listed as a program
@@ -467,13 +706,12 @@ fn parseFile(file_path: []const u8, progam_info_list: *std.ArrayListAligned(Menu
         program_info.exec_path != null)
     {
         if (program_info.comment == null) program_info.comment = try strCopy(&.{"Generic Program!!"}, extra_allocator);
-        if (program_info.use_terminal == null) program_info.use_terminal = false;
         if (program_info.categories == null) program_info.categories = &.{try strCopy(&.{"Other"}, extra_allocator)};
 
         try progam_info_list.append(program_info);
         return;
     }
-    stdOutD("Warning!! The file {s} has no name or exec path!!\n", .{file_path});
+    stdOutD("Warning!! The file '{s}' has no name or exec path!!\nIt won't be parsed!\n\n", .{file_path});
 }
 
 //Compare strings
